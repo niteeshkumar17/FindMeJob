@@ -5,7 +5,7 @@ import { loadFacts, restrictedVerbs, reviewResume } from "../lib/facts.js";
 import { addressInPost } from "../lib/jobs.js";
 import { dryRunEnabled, sendMail, sendMode } from "../lib/mail.js";
 import { alertTo, resumeApprovalHash, verbApproved } from "../lib/profile.js";
-import { loadPost, loadState, saveState } from "../lib/state.js";
+import { loadPost, loadState, saveState, withHuntLock } from "../lib/state.js";
 import { decideLiveVerbRetry } from "../lib/verb-retry.js";
 
 function toolResult(args: {
@@ -37,6 +37,14 @@ export default defineTool({
     resumeText: z.string().min(40).max(6000),
   }),
   async execute(input, ctx) {
+    return withHuntLock(() => sendApplication(input, ctx));
+  },
+});
+
+async function sendApplication(
+  input: { jobId: string; resumeText: string },
+  ctx: { session: { purpose?: string }; host: { files: Parameters<typeof loadState>[0] } },
+) {
     if (ctx.session.purpose === "eval") {
       return toolResult({ sent: false, blocked: false, dryRun: true, flags: [], verbs: [], reason: "eval" });
     }
@@ -199,5 +207,4 @@ export default defineTool({
       verbs,
       reason: result.reason,
     });
-  },
-});
+}

@@ -1,4 +1,5 @@
 import { loadFacts, reviewResume } from "./facts.js";
+import { plainJobLabel } from "./jobs.js";
 import { dryRunDraftHeader, resumePdf, sendMail, sendMode, testRecipient, type MailAuthError, type SendMode } from "./mail.js";
 import { alertTo, gmailAddress, maxSendsPerDay, resumeApprovalHash, verbApproved } from "./profile.js";
 import {
@@ -50,18 +51,20 @@ export async function transmit(
   }
   const redirected = testRecipient();
   const to = mode === "dry" ? alertTo() : mode === "test" ? redirected ?? alertTo() : draft.targetEmail;
+  const company = plainJobLabel(draft.company, 80);
+  const role = plainJobLabel(draft.role, 80);
   const subject =
     mode === "dry"
-      ? `[dry-run] ${draft.role} at ${draft.company}`
+      ? `[dry-run] ${role} at ${company}`
       : mode === "test"
-        ? `[test] ${draft.role} at ${draft.company}`
-        : `Application for ${draft.role} — Niteesh Kumar`;
+        ? `[test] ${role} at ${company}`
+        : `Application for ${role} at ${company}`;
   const body =
     mode === "employer"
       ? [
           "Hello,",
           "",
-          `I am applying for the ${draft.role} role at ${draft.company}.`,
+          `I am applying for the ${role} role at ${company}.`,
           "I am Niteesh Kumar, a Bachelor of Technology student in Computer Science and Engineering at IEC College of Engineering and Technology (2022-2026).",
           "Code: https://github.com/niteeshkumar17",
           "Store: https://kalingastore.shop",
@@ -75,8 +78,8 @@ export async function transmit(
           mode === "dry"
             ? "Dry run. This draft was not sent to the employer."
             : `TEST_RECIPIENT is set. This application was not sent to the employer. It was sent to ${to}.`,
-          `Company: ${draft.company}`,
-          `Role: ${draft.role}`,
+          `Company: ${company}`,
+          `Role: ${role}`,
           mode === "dry" ? "" : `Address in the post: ${draft.targetEmail}`,
           mode === "dry" ? "" : `Job: ${draft.url}`,
           "The resume PDF is attached.",
@@ -127,14 +130,17 @@ export async function emailHeldDraft(draft: HeldDraft, note: string): Promise<vo
     "TEST_RECIPIENT, while set, receives that send instead of the employer.",
     `Add this hash to VERB_APPROVALS: ${draft.resumeHash}`,
     `Verbs: ${draft.verbs.join(", ")}`,
-    `Company: ${draft.company}`,
-    `Role: ${draft.role}`,
+    `Company: ${plainJobLabel(draft.company, 80)}`,
+    `Role: ${plainJobLabel(draft.role, 80)}`,
     mode === "dry" ? "" : `Address in the post: ${draft.targetEmail}`,
     mode === "dry" ? "" : `Job post: ${draft.url}`,
   ];
   await sendMail({
     to: alertTo(),
-    subject: mode === "dry" ? `[review] ${draft.role} at ${draft.company}` : `[review] blocked live send ${draft.role} at ${draft.company}`,
+    subject:
+      mode === "dry"
+        ? `[review] ${plainJobLabel(draft.role, 60)} at ${plainJobLabel(draft.company, 40)}`
+        : `[review] blocked live send ${plainJobLabel(draft.role, 60)} at ${plainJobLabel(draft.company, 40)}`,
     body: lines.filter((line) => line !== "").join("\n"),
     pdf: { name: "Niteesh_Kumar_Resume.pdf", bytes: resumePdf(draft.resumeText) },
   });

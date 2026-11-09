@@ -136,11 +136,12 @@ async function fetchHn(): Promise<JobLead[]> {
     `https://hn.algolia.com/api/v1/search?tags=comment,story_${story.objectID}&hitsPerPage=50`,
   );
   return (comments.hits ?? []).flatMap((hit) => {
+    const title = hiringTitle(hit.comment_text ?? "");
     const lead = toLead(
       "hn",
       hit.objectID,
-      companyFromComment(hit.comment_text ?? ""),
-      firstLine(hit.comment_text ?? ""),
+      title.company,
+      title.role,
       hit.story_url ?? `https://news.ycombinator.com/item?id=${hit.objectID}`,
       hit.comment_text ?? "",
     );
@@ -148,17 +149,56 @@ async function fetchHn(): Promise<JobLead[]> {
   });
 }
 
-function companyFromComment(text: string): string {
-  const line = firstLine(text).replace(/\|/g, " ").trim();
-  return line.slice(0, 80) || "Hacker News hiring";
+/** One short plain-text label for a subject or a company line. */
+export function plainJobLabel(value: string, max = 80): string {
+  const text = plainText(value);
+  if (text.length === 0) {
+    return "Unknown";
+  }
+  if (text.length <= max) {
+    return text;
+  }
+  return `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-function firstLine(text: string): string {
-  return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "Software engineer";
+/** Company and role from a hiring comment. Pipes separate the title from the rest of the post. */
+export function hiringTitle(text: string): { company: string; role: string } {
+  const plain = plainText(text);
+  const head = plain.split(/[\n.!?]/)[0] ?? plain;
+  const parts = head.split("|").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return { company: plainJobLabel(parts[0], 80), role: plainJobLabel(parts[1], 80) };
+  }
+  const named = plain.match(/\b([A-Z0-9][\w.&'-]*(?:\s+[A-Z0-9][\w.&'-]*){0,3})\s+is hiring/);
+  return {
+    company: plainJobLabel(named?.[1] ?? parts[0]?.split(/\s+/).slice(0, 6).join(" ") ?? "Hacker News hiring", 80),
+    role: "Software engineer",
+  };
+}
+
+export function plainText(value: string): string {
+  const withoutTags = value.replace(/<[^>]+>/g, " ");
+  const decoded = withoutTags
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => safeChar(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, num: string) => safeChar(Number(num)))
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ");
+  return decoded.replace(/\s+/g, " ").trim();
+}
+
+function safeChar(code: number): string {
+  if (!Number.isFinite(code) || code < 32 || code > 0x10ffff) {
+    return " ";
+  }
+  return String.fromCodePoint(code);
 }
 
 function toLead(source: string, id: string, company: string, role: string, url: string, description: string): JobLead | undefined {
-  const plain = description.replace(/<[^>]+>/g, " ");
+  const plain = plainText(description);
   const postText = `${url}\n${plain}`.slice(0, 20000);
   const targetEmail = addressInPost(postText);
   if (!targetEmail) {
@@ -166,8 +206,8 @@ function toLead(source: string, id: string, company: string, role: string, url: 
   }
   return {
     jobId: `${source}:${id}`,
-    company: company || "Unknown",
-    role: role || "Software engineer",
+    company: plainJobLabel(company || "Unknown", 80),
+    role: plainJobLabel(role || "Software engineer", 80),
     url,
     description: plain.replace(/\s+/g, " ").slice(0, 1500),
     postText,

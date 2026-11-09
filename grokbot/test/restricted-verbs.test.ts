@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { restrictedVerbs, reviewResume } from "../bot/lib/facts.js";
+import { hiringTitle, plainJobLabel } from "../bot/lib/jobs.js";
+import { withHuntLock } from "../bot/lib/state.js";
 import { IMAP_HOST, IMAP_PORT, SMTP_HOST, SMTP_PORT, inboxThreadId, setMailConnectForTests, type MailSocket } from "../bot/lib/gmail.js";
 import { HELD_DRAFT_TTL_MS, heldDraftExpired, shouldMailSettleError, transmit } from "../bot/lib/deliver.js";
 import { runHuntPass } from "../bot/lib/hunt-pass.js";
@@ -9,6 +11,35 @@ import { dryRunDraftHeader } from "../bot/lib/mail.js";
 import { alertTo, gmailAddress, identityText, resumeApprovalHash, verbApproved } from "../bot/lib/profile.js";
 import { emptyState, loadState, todayKey, type StateFiles } from "../bot/lib/state.js";
 import { decideLiveVerbRetry } from "../bot/lib/verb-retry.js";
+
+test("a hiring post becomes a short subject, not the raw HTML", () => {
+  const comment =
+    "DiaMonTech AG | Software Engineer | Berlin, Germany | Full-time | ONSITE &#x2F; PARTIAL REMOTE<p>We are an innovative team. Email bartosz.plotka@diamontech.de";
+  const title = hiringTitle(comment);
+  assert.equal(title.company, "DiaMonTech AG");
+  assert.equal(title.role, "Software Engineer");
+  const subject = `[dry-run] ${plainJobLabel(title.role, 60)} at ${plainJobLabel(title.company, 40)}`;
+  assert.equal(subject, "[dry-run] Software Engineer at DiaMonTech AG");
+  assert.equal(subject.includes("<p>"), false);
+  assert.equal(subject.includes("&#"), false);
+});
+
+test("overlapping state changes do not drop a write", async () => {
+  let value = 0;
+  await Promise.all([
+    withHuntLock(async () => {
+      const seen = value;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      value = seen + 1;
+    }),
+    withHuntLock(async () => {
+      const seen = value;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      value = seen + 1;
+    }),
+  ]);
+  assert.equal(value, 2);
+});
 
 test("Led a team is flagged", () => {
   assert.ok(restrictedVerbs("Led a team").includes("led"));

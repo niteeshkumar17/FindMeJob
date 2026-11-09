@@ -99,6 +99,18 @@ function mailErrorRecord(value: unknown): MailErrorRecord | null {
   return { at: record.at, message: record.message };
 }
 
+let huntLock: Promise<void> = Promise.resolve();
+
+/** One state change at a time. Parallel sends otherwise overwrite each other's log. */
+export function withHuntLock<T>(work: () => Promise<T>): Promise<T> {
+  const run = huntLock.then(work, work);
+  huntLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function loadState(files: StateFiles): Promise<HuntState> {
   const raw = await files.read(STATE_FILE, { scope: SCOPE });
   if (!raw) {
